@@ -23,6 +23,7 @@ from dotenv import load_dotenv
 from litellm import completion
 from pydantic import BaseModel
 from state import AgentState
+from language_utils import detect_language, is_language_match
 
 load_dotenv()
 
@@ -56,10 +57,23 @@ def critic_node(state: AgentState) -> dict:
     draft = state["draft"]
     patient_input = state["patient_input"]
     iteration = state.get("iteration", 0)
+    expected_language = detect_language(patient_input)
 
     print(f"\n{'='*50}")
     print(f"🔍 CRITIC değerlendiriyor... (İterasyon: {iteration})")
     print(f"{'='*50}")
+
+    if not is_language_match(patient_input, draft):
+        feedback = (
+            "Please rewrite the summary in English."
+            if expected_language == "en"
+            else "Lütfen özeti Türkçe olarak yeniden yazın."
+        )
+        print("❌ REDDEDİLDİ!\n   Sebep: Dil eşleşmiyor.")
+        return {
+            "approved": False,
+            "feedback": feedback,
+        }
 
     system_prompt = """Sen bir klinik kalite güvence uzmanısın.
 Sana bir klinik özet taslağı verilecek. Aşağıdaki kriterlere göre değerlendir:
@@ -67,9 +81,11 @@ Sana bir klinik özet taslağı verilecek. Aşağıdaki kriterlere göre değerl
 1. TIBBİ OLMAYAN İÇERİK: Orijinal hasta semptomu gerçekten sağlık/tıbbi bir şikayet mi? Yoksa alakasız bir metin mi (örn: "i hate you")? Eğer tıbbi bir girdi DEĞİLSE ve taslak olarak tıbbi özet üretilmeye çalışılmışsa REDDET. Ancak girdi tıbbi değilse ve taslakta zaten "Bu girdi tıbbi şikayet içermemektedir" gibi uygun bir uyarı yazılmışsa ONAYLA (çünkü sistemin doğru tepkisidir).
 2. TEŞHİS YASAĞI: Taslak kesin teşhis koyuyor mu? (koyuyorsa REDDET)
 3. KLİNİK TON: Dil profesyonel ve klinik mi? (değilse REDDET)
+3.1. BASİT TEKRAR YASAĞI: Taslak, hastanın cümlesini sadece ufak yazım/gramer düzeltmesiyle tekrar mı ediyor? Eğer belirgin bir klinik özetleme dönüşümü yoksa REDDET.
 4. HALÜSİNASYON: Hasta verisinde olmayan bilgi uyduruluyor mu? (uyduruyorsa REDDET)
 5. UYDURMA TERMİNOLOJİ: "morningafter sendromu" gibi tıp literatüründe var olmayan uydurma sendromlar veya "extreme", "complaint" gibi yarı İngilizce kelimeler kullanılmış mı? (kullanılmışsa REDDET ve hedef dildeki tıbbi karşılığını kullanmasını söyle)
 6. DİL TUTARLILIĞI (ÇOK ÖNEMLİ): "ORİJİNAL HASTA SEMPTOMU" metni HANGİ DİLDE yazılmışsa, "Değerlendirilecek Klinik Özet Taslağı" da KESİNLİKLE O DİLDE yazılmış olmalıdır. Eğer orijinal metin İngilizce ama taslak Türkçe (veya tam tersi) yazılmışsa ANINDA REDDET ve "Lütfen orijinal girdi ile aynı dilde yazın" de.
+7. ÖZETLEME KALİTESİ: Taslak mümkünse hastanın konuşma dilini daha profesyonel bir klinik özet formuna dönüştürmelidir. Örneğin ilk tekil şahıs konuşmayı klinik rapor tonuna çevirmesi beklenir.
 
 ÖNEMLİ KURAL:
 Feedback metninde bir alıntı yapacaksan KESİNLİKLE çift tırnak (") kullanma, onun yerine tek tırnak (') kullan. JSON formatını bozmamalısın.

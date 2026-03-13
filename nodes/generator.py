@@ -18,6 +18,7 @@ import os
 from dotenv import load_dotenv
 from litellm import completion
 from state import AgentState
+from language_utils import detect_language, language_name, is_language_match
 
 # .env dosyasından API key'i yükle
 load_dotenv()
@@ -37,6 +38,7 @@ def generator_node(state: AgentState) -> dict:
     patient_input = state["patient_input"]
     feedback = state.get("feedback", "")
     iteration = state.get("iteration", 0)
+    expected_language = detect_language(patient_input)
 
     print(f"\n{'='*50}")
     print(f"🖊️  GENERATOR çalışıyor... (İterasyon: {iteration + 1})")
@@ -52,27 +54,32 @@ def generator_node(state: AgentState) -> dict:
 Bu geri bildirimi dikkate alarak taslağı düzelt.
 """
 
-    # System prompt: Modele rolünü tanımlıyoruz (Sistem dilini İngilizce yapıyoruz ki her dile uyum sağlasın)
+    # System prompt: modeli gerçekten klinik özet formatına zorlarız.
     system_prompt = """You are an experienced clinical documentation specialist.
-You evaluate patient symptoms and prepare a professional clinical summary draft.
+You convert raw patient symptom descriptions into a concise clinical summary.
 
 YOUR RULES:
-- MEDICAL CONTENT ONLY: If the patient input is clearly NOT related to health, medical conditions, or symptoms (e.g., general chats, insults, random statements like "i hate you"), DO NOT summarize it. Instead, output a warning message in the original input's language (e.g., "The input does not contain a medical complaint." or "Bu girdi tıbbi bir şikayet içermemektedir.").
-- DO NOT make a definitive diagnosis — only summarize the symptoms and observations.
-- Use clinical and professional language.
+- MEDICAL CONTENT ONLY: If the patient input is clearly NOT related to health, medical conditions, or symptoms (for example insults, random chat, or statements like 'i hate you'), DO NOT summarize it. Instead, output a warning message in the original input's language.
+- DO NOT make a definitive diagnosis. Only summarize reported symptoms and relevant observations.
+- Use concise, professional, clinical wording.
 - Do not hallucinate or invent information not present in the input.
-- Keep the summary brief. If the input is 1 sentence, reply with 1 sentence. Do not force yourself to write an essay.
-- CRITICAL LANGUAGE RULE: You MUST output the clinical summary in the EXACT SAME LANGUAGE as the patient's input. If the input is English, output English. If Turkish, output Turkish.
-- Output ONLY the clinical summary. Do not use conversational filler, greetings, or explanations like "Here is your summary".
+- Keep the summary brief. Usually 1 sentence is enough.
+- CRITICAL LANGUAGE RULE: Output the summary in the EXACT SAME LANGUAGE as the patient's input.
+- IMPORTANT STYLE RULE: Do NOT simply copy the patient's wording with small grammar fixes. Transform colloquial or first-person wording into a short clinical summary.
+- Prefer formulations like 'Patient reports...' / 'Hasta ... şikayeti bildirmektedir.' in the same language as the input.
+- Output ONLY the final clinical summary. No greetings, labels, or explanations.
 """
 
     # User prompt: Hasta verisini ve feedback'i gönderiyoruz
     # Burası da İngilizce olmak zorunda, aksi halde model kafası karışır
-    user_prompt = f"""Patient Symptom Input:
+    user_prompt = f"""Target output language: {language_name(expected_language)}
+
+Patient Symptom Input:
 {patient_input}
 
 {feedback_section}
-Please write a clinical summary draft based on the symptoms above."""
+Write one short professional clinical summary based on the symptoms above.
+Do not merely correct spelling. Rewrite the content in clinical summary style."""
 
     # LiteLLM üzerinden Groq API çağrısı
     # Model adı: "groq/llama-3.3-70b-versatile"
@@ -87,6 +94,38 @@ Please write a clinical summary draft based on the symptoms above."""
 
     # LLM'den gelen metni çıkar
     draft = response.choices[0].message.content.strip()
+
+    if not is_language_match(patient_input, draft):
+        print(
+            f"\n⚠️ Language mismatch detected. Expected {language_name(expected_language)}, retrying generator response."
+        )
+        repair_prompt = f"""Rewrite the following clinical summary in {language_name(expected_language)}.
+
+Rules:
+- Keep exactly the same medical meaning.
+- Do not add new facts.
+- Output only the corrected summary.
+
+Original patient input:
+{patient_input}
+
+Draft to rewrite:
+{draft}
+"""
+        repair_response = completion(
+            model="groq/llama-3.3-70b-versatile",
+            messages=[
+                {
+                    "role": "system",
+                    "content": "You fix language mismatches in clinical summaries while preserving meaning exactly.",
+                },
+                {"role": "user", "content": repair_prompt},
+            ],
+            api_key=os.getenv("GROQ_API_KEY"),
+        )
+        repaired_draft = repair_response.choices[0].message.content.strip()
+        if is_language_match(patient_input, repaired_draft):
+            draft = repaired_draft
 
     print(f"\n📝 Üretilen Taslak:\n{draft}\n")
 
