@@ -62,13 +62,14 @@ def critic_node(state: AgentState) -> dict:
     print(f"{'='*50}")
 
     system_prompt = """Sen bir klinik kalite güvence uzmanısın.
-Sana bir klinik özet taslağı verilecek. 3 kritere göre değerlendir:
+Sana bir klinik özet taslağı verilecek. Aşağıdaki kriterlere göre değerlendir:
 
-1. TEŞHİS YASAĞI: Taslak kesin teşhis koyuyor mu? (koyuyorsa REDDET)
-2. KLİNİK TON: Dil profesyonel ve klinik mi? (değilse REDDET)
-3. HALÜSİNASYON: Hasta verisinde olmayan bilgi uyduruluyor mu? (uyduruyorsa REDDET)
-4. UYDURMA TERMİNOLOJİ: "morningafter sendromu" gibi tıp literatüründe var olmayan uydurma sendromlar veya "extreme", "complaint" gibi yarı İngilizce kelimeler kullanılmış mı? (kullanılmışsa REDDET ve hedef dildeki tıbbi karşılığını kullanmasını söyle)
-5. DİL TUTARLILIĞI (ÇOK ÖNEMLİ): "ORİJİNAL HASTA SEMPTOMU" metni HANGİ DİLDE yazılmışsa, "Değerlendirilecek Klinik Özet Taslağı" da KESİNLİKLE O DİLDE yazılmış olmalıdır. Eğer orijinal metin İngilizce ama taslak Türkçe (veya tam tersi) yazılmışsa ANINDA REDDET ve "Lütfen orijinal girdi ile aynı dilde yazın" de.
+1. TIBBİ OLMAYAN İÇERİK: Orijinal hasta semptomu gerçekten sağlık/tıbbi bir şikayet mi? Yoksa alakasız bir metin mi (örn: "i hate you")? Eğer tıbbi bir girdi DEĞİLSE ve taslak olarak tıbbi özet üretilmeye çalışılmışsa REDDET. Ancak girdi tıbbi değilse ve taslakta zaten "Bu girdi tıbbi şikayet içermemektedir" gibi uygun bir uyarı yazılmışsa ONAYLA (çünkü sistemin doğru tepkisidir).
+2. TEŞHİS YASAĞI: Taslak kesin teşhis koyuyor mu? (koyuyorsa REDDET)
+3. KLİNİK TON: Dil profesyonel ve klinik mi? (değilse REDDET)
+4. HALÜSİNASYON: Hasta verisinde olmayan bilgi uyduruluyor mu? (uyduruyorsa REDDET)
+5. UYDURMA TERMİNOLOJİ: "morningafter sendromu" gibi tıp literatüründe var olmayan uydurma sendromlar veya "extreme", "complaint" gibi yarı İngilizce kelimeler kullanılmış mı? (kullanılmışsa REDDET ve hedef dildeki tıbbi karşılığını kullanmasını söyle)
+6. DİL TUTARLILIĞI (ÇOK ÖNEMLİ): "ORİJİNAL HASTA SEMPTOMU" metni HANGİ DİLDE yazılmışsa, "Değerlendirilecek Klinik Özet Taslağı" da KESİNLİKLE O DİLDE yazılmış olmalıdır. Eğer orijinal metin İngilizce ama taslak Türkçe (veya tam tersi) yazılmışsa ANINDA REDDET ve "Lütfen orijinal girdi ile aynı dilde yazın" de.
 
 ÖNEMLİ KURAL:
 Feedback metninde bir alıntı yapacaksan KESİNLİKLE çift tırnak (") kullanma, onun yerine tek tırnak (') kullan. JSON formatını bozmamalısın.
